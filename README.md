@@ -1,5 +1,5 @@
 # Text-Analysis-in-R-Machine-Learning-on-Sec.-Clintons-Emails
-Using Sentiment Analysis and Machine Learning to Determine Secretary Clinton's Foreign Policy Stance
+Using Sentiment Analysis, Structured Topic Modelling, and Machine Learning to Determine Secretary Clinton's Foreign Policy Stance
 
 
 This text analysis was completed by Imgesu Cetin, Talor Gruenwald, and Nicole (Niki) Kalmus for the UCSD class, Machine Learning for Social Scientists.
