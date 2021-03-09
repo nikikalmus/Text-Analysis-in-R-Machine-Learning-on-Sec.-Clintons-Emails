@@ -1,0 +1,320 @@
+---
+title: "Challenge 2"
+author: "Imgesu Cetin, Talor Gruenwald, Nicole (Niki) Kalmus"
+date: "6/6/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list = ls())
+setwd("/Users/nicolekalmus/Documents/UCSD/Spring 2020/POLI 175 Machine Learning for Social Sciences/Challenge 2")
+
+
+library(ggplot2)
+library(wordcloud)
+library(tm)
+library(SnowballC)
+library(Matrix)
+library(tidyverse)
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(stringr)
+```
+
+
+```{r}
+#Load in the corpus
+clinton <- read.csv("Clinton.csv", stringsAsFactors = FALSE)
+```
+
+
+Step 1: Prepare the data
+```{r}
+#Cleaning the data
+x <- clinton[1:3009] #only top most frequent words - unigram is cleanest
+rownames(x) <- x$ID #make unique ID number row names, just incase
+
+x <- x[-c(1:9)] # for only top most frequent words - unigrams
+  # rows are the documents, by ID number, and the columns are the words
+```
+
+Step 2: Clean the unigrams, there are several one letter columns and many stop words
+```{r}
+#Some of the unigrams are common stop words
+stop_words <- unlist(read.table("stopwords_new.txt", stringsAsFactors = F))
+  # from Princeton: https://algs4.cs.princeton.edu/35applications/stopwords.txt
+x_new <- x[ , !names(x) %in% stop_words]
+
+#need to remove any vars with numbers in them!!!
+X_vars <- x_new %>% select(starts_with("x"))
+x_vars <- colnames(X_vars)
+
+x_new2 <- x_new[ , !names(x_new) %in% x_vars]
+names(x_new2) <- gsub("[.]", "", names(x_new2))
+x_new2 <- x_new2[ , !names(x_new2) %in% stop_words]
+
+# check for any with punctuation left
+punct <- x_new2 %>% select(ends_with(".")) # there should be 0
+
+#remove the one letter columns, there are many throwing off the analysis
+single_alpha <- c("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t","u","v", "w", "x", "y", "z")
+x_new3 <- x_new2[ , !names(x_new2) %in% single_alpha]
+
+# remove "state" and "department" and words found in most emails pertaining to email (these words throw off our topic modelling)
+email_words <- c("department","state","unclassified", "case", "doc", "date","subject", "cc","fw","www","http")
+x_new4 <- x_new3[ , !names(x_new3) %in% email_words]
+
+x <- x_new4
+rm(x_new)
+rm(x_new2)
+rm(x_new3)
+rm(x_new4)
+```
+
+
+Step 3: Sentiment Analysis
+Hard Power vs. Soft Power
+
+Step 3a: Classify e-mails based on hard/soft power dictionaries from Harvard
+```{r}
+# Load dictionaries
+hard <- unlist(read.table("hard.txt", stringsAsFactors = F))
+soft <- unlist(read.table("soft.txt", stringsAsFactors = F))
+
+#clean up the words in hard & soft (they are all caps!)
+hard <- tolower(hard)
+soft <- tolower(soft)
+
+# Create weight vector corresponding to all words in matrix
+words <- colnames(x)
+theta <- (1*as.numeric(words %in% soft)) +
+  (-1*as.numeric(words %in% hard)) #weight vector where soft words take positive 1 and hard take -1 and neither get 0
+
+# words[100:110]
+# theta[100:110]
+
+val <- apply(x, MARGIN = 1, FUN = function(z)  sum(z*theta)/sum(z))
+val.dat <- data.frame(val = val)
+
+ggplot(val.dat, aes(x = val)) + 
+  geom_histogram(bins = 30, color = "black", fill = "steelblue") + 
+  labs(x = "Power Sentiment (negative = hard power)", y = "Count", 
+       title = "Histogram of Email Sentiment (Hard vs. Soft Power)") +
+  geom_vline(xintercept = mean(val, na.rm = TRUE), linetype = 2, color = "darkslategray3") +
+ ggplot2::annotate("text", x = 0.187, y = 1680, label = paste0("Global Mean = ", round(mean(val, na.rm = TRUE),3))) + theme_minimal()
+```
+
+Step 3b: Take a look at some top words
+```{r}
+#words in most often in Hard Power emails
+x[which.min(val), x[which.min(val),] > 0][
+  names(x[which.min(val), x[which.min(val),] > 0]) %in% hard]
+
+#words in most Soft Power emails
+x[which.max(val), x[which.max(val),] > 0][
+  names(x[which.max(val), x[which.max(val),] > 0]) %in% soft]
+```
+
+Step 3c: Categorize each email, add column to dataset to be sure it's there
+```{r}
+# Categorizing 
+val.cat <- val
+val.cat[val.cat > 0] <- 1
+val.cat[val.cat < 0] <- -1
+table(val.cat)
+#x <- cbind(x,val.cat)
+```
+
+Step 3d: Exploratory visualizartion of results
+```{r}
+#word cloud of soft power vs. hard power emails
+# Hard power
+tophard <- data.frame(apply(x, 2, sum))
+tophard$word <- rownames(tophard)
+tophard <- tophard[tophard$word %in% hard,]
+names(tophard)[1] <- "count"
+wordcloud(tophard$word, tophard$count, min.freq = 1000)
+
+# Soft power
+topsoft <- data.frame(apply(x, 2, sum))
+topsoft$word <- rownames(topsoft)
+topsoft <- topsoft[topsoft$word %in% soft,]
+names(topsoft)[1] <- "count"
+wordcloud(topsoft$word, topsoft$count, min.freq = 1000)
+```
+
+```{r}
+
+#word cloud with color of soft power vs. hard power emails
+x_word <- x
+
+# Hard power
+tophard <- data.frame(apply(x_word, 2, sum))
+tophard$word <- rownames(tophard)
+tophard <- tophard[tophard$word %in% hard,]
+names(tophard)[1] <- "count"
+wordcloud(tophard$word, tophard$count, min.freq = 1000, colors=c("black", "darkgoldenrod1", "tomato"))
+
+# Soft power
+topsoft <- data.frame(apply(x_word, 2, sum))
+topsoft$word <- rownames(topsoft)
+topsoft <- topsoft[topsoft$word %in% soft,]
+names(topsoft)[1] <- "count"
+wordcloud(topsoft$word, topsoft$count, min.freq = 1000, colors =c("grey","steelblue","purple")) 
+```
+
+
+
+Step 4: Topic Modelling for Each Classification
+Looking at Both 3 and 5 Topics for Analysis
+```{r}
+#Create matrices for soft vs. hard power
+soft_data <-subset(x, val.cat == 1)
+hard_data <-subset(x, val.cat == -1)
+
+#drop the val categories
+soft_data <- soft_data[,!names(soft_data) %in% c("val.cat")]
+hard_data <- hard_data[,!names(hard_data) %in% c("val.cat")]
+
+x_soft<-as.matrix(soft_data)
+x_soft<-Matrix(x_soft)
+x_hard<-as.matrix(hard_data)
+x_hard<-Matrix(x_hard)
+```
+
+```{r}
+#topic modeling for soft data set - 3 topics
+
+#Packages
+library(topicmodels)
+library(tidytext)
+library(ggplot2)
+library(dplyr)
+library(tidytext)
+
+topmod_fit_soft <- LDA(soft_data, k = 3, seed = 8675309)
+topmod_fit_soft_tidy <- tidy(topmod_fit_soft, matrix = "beta")
+topmod_fit_soft_tidy
+  # For each combination, the model computes the probability of that term being generated from that topic.
+```
+
+```{r}
+#tidy data frame to visualize
+topmod_fit_soft_tidyed <- topmod_fit_soft_tidy %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+topmod_fit_soft_tidyed
+```
+```{r}
+#visualize topics in soft power 
+topmod_fit_soft_tidyed %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+
+```{r}
+topmod_fit_hard <- LDA(hard_data, k = 3, seed = 8675309)
+library(tidytext)
+topmod_fit_hard_tidy <- tidy(topmod_fit_hard, matrix = "beta")
+topmod_fit_hard_tidy
+# For each combination, the model computes the probability of that term being generated from that topic.
+```
+
+
+```{r}
+#tidy version of hard powers 
+topmod_fit_hard_tidyed <- topmod_fit_hard_tidy %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+topmod_fit_hard_tidyed
+```
+
+```{r}
+topmod_fit_hard_tidyed %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+
+```{r}
+#topic modeling for soft data set - 5 topics
+
+#Packages
+library(topicmodels)
+library(tidytext)
+library(ggplot2)
+library(dplyr)
+library(tidytext)
+
+topmod5_fit_soft <- LDA(soft_data, k = 5, seed = 8675309)
+topmod5_fit_soft_tidy <- tidy(topmod5_fit_soft, matrix = "beta")
+topmod5_fit_soft_tidy
+  # For each combination, the model computes the probability of that term being generated from that topic.
+```
+
+```{r}
+#tidy data frame to visualize
+topmod5_fit_soft_tidyed <- topmod5_fit_soft_tidy %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+topmod5_fit_soft_tidyed
+```
+```{r}
+#visualize topics in soft power 
+topmod5_fit_soft_tidyed %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
+
+
+```{r}
+#Hard Power - 5 Topics
+topmod5_fit_hard <- LDA(hard_data, k = 5, seed = 8675309)
+library(tidytext)
+topmod5_fit_hard_tidy <- tidy(topmod5_fit_hard, matrix = "beta")
+topmod5_fit_hard_tidy
+```
+
+
+```{r}
+#tidy version of hard powers 
+topmod5_fit_hard_tidyed <- topmod5_fit_hard_tidy %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+topmod5_fit_hard_tidyed
+```
+
+```{r}
+topmod5_fit_hard_tidyed %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() +
+  scale_x_reordered()
+```
